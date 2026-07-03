@@ -15,38 +15,36 @@
 
 **空白点**：几乎没有产品专门做"职场协作英语"这个场景颗粒度——不是泛泛的日常对话，也不是纯面试题库，而是"如何在站会里同步进度"、"如何委婉反驳同事的方案"、"如何在 1:1 里给下属负反馈"这类具体协作动作。这是 DoTalk 可以切入的角度：**场景真实度 + 结构化反馈（不只是通顺，还要专业/得体）**，比通用场景库更垂直。
 
-## 技术架构建议
+## 技术架构（已实现）
 
-核心问题：语音对话有两条路可走。
+语音管线：**Deepgram Flux（STT）→ DeepSeek V4 Pro（对话 + 结构化反馈）→ ElevenLabs（TTS）**。
 
-### 方案 A：级联管线（推荐用于 MVP）
+Vercel 不支持长连接双工音频（Functions 最长 300-800秒、无原生 WebSocket），所以按连接方向拆开：
+
+- **STT（浏览器 ↔ Deepgram，真双工，绕开 Vercel）**：浏览器直接开 WebSocket 连 `wss://api.deepgram.com/v2/listen`（Flux 模型），认证用 [`/api/deepgram-token`](src/app/api/deepgram-token/route.ts) 现场发的短期 JWT（`Sec-WebSocket-Protocol: token,<jwt>`），永久 key 不下发到浏览器。音频用 AudioWorklet（[`public/pcm-worklet.js`](public/pcm-worklet.js)）转成 16kHz mono PCM16，80ms 一帧发送。
+- **对话+反馈（Vercel Function）**：[`/api/turn`](src/app/api/turn/route.ts) 用 AI SDK 的 `generateObject` 调 `deepseek-v4-pro`，一次返回英文回复 + 语法纠错 + 语气点评（schema 见 [`lib/schemas.ts`](src/lib/schemas.ts)）。
+- **TTS（Vercel Function，单向流，天然适配 serverless）**：[`/api/tts`](src/app/api/tts/route.ts) 服务端调 ElevenLabs 流式合成接口，把音频流原样转发给浏览器，key 不出服务器。
+- **文档解析（Vercel Function，无状态）**：[`/api/parse-document`](src/app/api/parse-document/route.ts) 用 `pdf-parse`/`mammoth` 现抽现返，不落盘。
+
+MVP 阶段没做账号系统和云端持久化——场景配置存 `sessionStorage`，练习历史存浏览器 `localStorage`（见 [`lib/history.ts`](src/lib/history.ts)）。单机可用，多设备同步之类留到验证完产品价值再做。
+
+对话轮次是严格轮流（walkie-talkie 式）：AI 说话时不监听麦克风，说完才重新开始听，没做打断（barge-in）——真打断需要一个常驻编排进程才能做得稳，MVP 先不做。
+
+## 本地运行
+
+```bash
+pnpm install
+cp .env.example .env.local   # 填 DEEPGRAM_API_KEY / ELEVENLABS_API_KEY / DEEPSEEK_API_KEY
+pnpm dev
 ```
-麦克风 → STT (Deepgram Flux) → LLM 对话/教练逻辑 (Claude) → TTS (Cartesia/ElevenLabs) → 播放
-```
-- **STT**：Deepgram Flux——专为语音agent设计，内建端点检测（不用自己再接 VAD），延迟目前业内领先，流式 $0.0077/分钟。
-- **对话与反馈层**：Claude（`claude-opus-4-8`，配合 adaptive thinking）。级联方案的价值就在这一层可以做**结构化输出**——不只是回一句话，还能同时判定语法错误、给替换表达建议、按 STAR 法则评估面试回答、生成场景切换的引导语。这些是纯语音到语音模型（下面方案B）目前做不到或很难做到的。
-- **TTS**：Cartesia Sonic 4（约40ms首字延迟，最快）或 ElevenLabs Flash v2.5（约75ms，音色更自然）；MVP 阶段建议先用 ElevenLabs，音色打磨对"陪练"体验影响大。
 
-优点：反馈逻辑完全可控、可插拔评分/纠错模块、成本透明。
-缺点：三段拼接，端到端延迟比原生语音模型高（大概几百毫秒到1秒量级），需要精心做流式衔接。
+需要三个 key：[Deepgram](https://console.deepgram.com)、[ElevenLabs](https://elevenlabs.io)、[DeepSeek](https://platform.deepseek.com)。`ELEVENLABS_VOICE_ID` 可选，默认用 ElevenLabs 自带的一个英文音色。
 
-### 方案 B：原生语音到语音（OpenAI Realtime / Gemini Live）
-延迟最低、体验最自然，但"教练"逻辑（结构化纠错、打分、STAR 评估）目前只能通过 function calling 或事后分析实现，控制粒度不如方案A。Gemini Live 价格显著低于 OpenAI Realtime（高并发场景差距可到一个数量级），OpenAI 在长会话/工具调用/电话接入(SIP)上更强。
+流程：首页选场景（职场协作/面试）、写场景描述、可选传JD/简历 → `/practice` 语音对话 → 结束后 `/report` 生成结构化报告 → `/history` 看本地历史记录。
 
-**建议**：MVP 用方案A验证"结构化反馈"这个核心价值主张是否成立；如果核心是"沉浸式对话"体验而非反馈质量，再评估切到方案B或混合（对话用方案B，练后生成报告单独用 Claude 做一次批量分析）。
+## 已知限制 / 下一步
 
-## MVP 范围建议
-
-1. 选场景（如"站会同步进度" / "给同事技术反馈" / "行为面试 STAR 问答"）
-2. 语音对话若干轮
-3. 结束后生成结构化报告：语法/用词问题清单、更地道的表达替换、语气/得体度点评、（面试场景）STAR 结构完整度打分
-4. 录音+文字转写留存，可回放对比进步
-
-暂不做：多人协作房间、实时打分弹幕、发音音素级评分（ELSA 已经做得很深，没必要重复造轮子）。
-
-## 下一步
-
-- [ ] 定用户画像：国内程序员/职场人练"和老外同事协作"，还是留学生练面试，还是两者都要（场景库和话术库会很不一样）
-- [ ] 定技术栈（Web优先？是否要移动端？前端框架、后端语言）
+- [ ] 没有打断/barge-in，AI 说话时麦克风是关的
+- [ ] 每轮都重开一次 Deepgram 连接（简单但有一点延迟开销），量大了可以优化成常驻连接+静音而不是断开重连
 - [ ] 拉3-5个目标用户做场景访谈，验证"职场协作英语"这个切入点是不是真痛点
-- [ ] 搭 STT→LLM→TTS 的延迟原型，实测端到端体验能不能接受
+- [ ] 真要扩量，实时这条线迁移到独立编排服务（LiveKit/Pipecat），Vercel 只留前端+账号+报告生成

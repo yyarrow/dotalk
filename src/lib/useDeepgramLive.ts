@@ -1,0 +1,111 @@
+"use client";
+
+import { useCallback, useRef, useState } from "react";
+
+interface DeepgramHandlers {
+  onFinalTranscript: (transcript: string) => void;
+  onInterimTranscript?: (transcript: string) => void;
+  onError?: (error: unknown) => void;
+}
+
+interface TurnInfoMessage {
+  type: string;
+  event?: "StartOfTurn" | "Update" | "EagerEndOfTurn" | "TurnResumed" | "EndOfTurn";
+  transcript?: string;
+}
+
+// Opens a WebSocket directly from the browser to Deepgram Flux (no
+// Vercel function in the loop — this leg needs true duplex streaming,
+// which serverless request/response can't provide). The short-lived
+// token comes from /api/deepgram-token so the permanent key never
+// reaches the browser. Handlers are passed to start() per call instead
+// of at hook-construction time, so start/stop stay referentially stable
+// no matter how often the caller's callbacks change.
+export function useDeepgramLive() {
+  const [isListening, setIsListening] = useState(false);
+  const socketRef = useRef<WebSocket | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const workletNodeRef = useRef<AudioWorkletNode | null>(null);
+
+  const stop = useCallback(() => {
+    workletNodeRef.current?.disconnect();
+    workletNodeRef.current = null;
+    audioContextRef.current?.close();
+    audioContextRef.current = null;
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    socketRef.current?.close();
+    socketRef.current = null;
+    setIsListening(false);
+  }, []);
+
+  const start = useCallback(
+    async (handlers: DeepgramHandlers) => {
+      try {
+        const tokenRes = await fetch("/api/deepgram-token");
+        if (!tokenRes.ok) throw new Error("Failed to fetch Deepgram token");
+        const { access_token } = await tokenRes.json();
+
+        const socket = new WebSocket(
+          "wss://api.deepgram.com/v2/listen?model=flux-general-en&encoding=linear16&sample_rate=16000&eot_threshold=0.7",
+          ["token", access_token],
+        );
+        socket.binaryType = "arraybuffer";
+        socketRef.current = socket;
+
+        socket.addEventListener("message", (event) => {
+          let msg: TurnInfoMessage;
+          try {
+            msg = JSON.parse(event.data as string);
+          } catch {
+            return;
+          }
+          if (msg.type !== "TurnInfo" || !msg.transcript) return;
+          if (msg.event === "EndOfTurn") {
+            handlers.onFinalTranscript(msg.transcript);
+          } else {
+            handlers.onInterimTranscript?.(msg.transcript);
+          }
+        });
+
+        await new Promise<void>((resolve, reject) => {
+          socket.addEventListener("open", () => resolve(), { once: true });
+          socket.addEventListener(
+            "error",
+            () => reject(new Error("Deepgram socket error")),
+            { once: true },
+          );
+        });
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: { channelCount: 1 },
+        });
+        streamRef.current = stream;
+
+        const audioContext = new AudioContext({ sampleRate: 16000 });
+        audioContextRef.current = audioContext;
+        await audioContext.audioWorklet.addModule("/pcm-worklet.js");
+
+        const source = audioContext.createMediaStreamSource(stream);
+        const workletNode = new AudioWorkletNode(audioContext, "pcm-worklet");
+        workletNodeRef.current = workletNode;
+
+        workletNode.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(event.data);
+          }
+        };
+
+        source.connect(workletNode);
+        setIsListening(true);
+      } catch (error) {
+        stop();
+        handlers.onError?.(error);
+      }
+    },
+    [stop],
+  );
+
+  return { start, stop, isListening };
+}

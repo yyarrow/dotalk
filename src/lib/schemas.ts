@@ -20,8 +20,9 @@ export const CorrectionSchema = z.object({
 });
 export type Correction = z.infer<typeof CorrectionSchema>;
 
-export const TurnResponseSchema = z.object({
-  reply: z.string().describe("AI 作为对话对象接下来要说的话，会被朗读出来"),
+// Coaching feedback on the user's latest utterance, computed in parallel with
+// the spoken reply so it never blocks audio (it's shown as text, not spoken).
+export const CoachingSchema = z.object({
   corrections: z
     .array(CorrectionSchema)
     .describe("这一轮用户表达里值得指出的语法/用词问题，没有就返回空数组"),
@@ -30,7 +31,7 @@ export const TurnResponseSchema = z.object({
     .optional()
     .describe("如果语气/得体度有明显问题（太直接、太生硬等）才填，否则不填"),
 });
-export type TurnResponse = z.infer<typeof TurnResponseSchema>;
+export type Coaching = z.infer<typeof CoachingSchema>;
 
 export const ImprovementAreaSchema = z.object({
   issue: z.string().describe("反复出现的问题类型"),

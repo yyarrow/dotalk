@@ -17,12 +17,12 @@
 
 ## 技术架构（已实现）
 
-语音管线：**Deepgram Flux（STT）→ DeepSeek V4 Pro（对话 + 结构化反馈）→ TTS（可切换供应商）**。
+语音管线：**Deepgram Flux（STT）→ DeepSeek V4 Pro（经 OpenRouter，对话 + 结构化反馈）→ TTS（可切换供应商）**。
 
 Vercel 不支持长连接双工音频（Functions 最长 300-800秒、无原生 WebSocket），所以按连接方向拆开：
 
 - **STT（浏览器 ↔ Deepgram，真双工，绕开 Vercel）**：浏览器直接开 WebSocket 连 `wss://api.deepgram.com/v2/listen`（Flux 模型），认证用 [`/api/deepgram-token`](src/app/api/deepgram-token/route.ts) 现场发的短期 JWT（`Sec-WebSocket-Protocol: token,<jwt>`），永久 key 不下发到浏览器。音频用 AudioWorklet（[`public/pcm-worklet.js`](public/pcm-worklet.js)）转成 16kHz mono PCM16，80ms 一帧发送。
-- **对话+反馈（Vercel Function）**：[`/api/turn`](src/app/api/turn/route.ts) 用 AI SDK 的 `generateObject` 调 `deepseek-v4-pro`，一次返回英文回复 + 语法纠错 + 语气点评（schema 见 [`lib/schemas.ts`](src/lib/schemas.ts)）。
+- **对话+反馈（Vercel Function）**：[`/api/turn`](src/app/api/turn/route.ts) 用 AI SDK 的 `generateObject` 经 OpenRouter 调对话模型（默认 `deepseek/deepseek-v4-pro`，改 `OPENROUTER_MODEL` 即可换任意模型），一次返回英文回复 + 语法纠错 + 语气点评（schema 见 [`lib/schemas.ts`](src/lib/schemas.ts)，provider 配置在 [`lib/dialogue.ts`](src/lib/dialogue.ts)）。
 - **TTS（Vercel Function，单向流，天然适配 serverless）**：[`/api/tts`](src/app/api/tts/route.ts) 只是个薄壳，实际合成逻辑在 [`lib/tts/`](src/lib/tts)，按 `TTS_PROVIDER` 环境变量分发到四个供应商之一，key 都不出服务器：
 
   | 供应商 | 首字延迟 | 大致单价(每百万字) | 特点 |
@@ -43,11 +43,11 @@ MVP 阶段没做账号系统和云端持久化——场景配置存 `sessionStor
 
 ```bash
 pnpm install
-cp .env.example .env.local   # 填 DEEPGRAM_API_KEY / DEEPSEEK_API_KEY / 至少一个 TTS 供应商的 key
+cp .env.example .env.local   # 填 DEEPGRAM_API_KEY / OPENROUTER_API_KEY / 至少一个 TTS 供应商的 key
 pnpm dev
 ```
 
-必填：[Deepgram](https://console.deepgram.com)（STT）、[DeepSeek](https://platform.deepseek.com)（对话）。TTS 默认走 Azure，去 [Azure AI Speech](https://portal.azure.com) 建一个 Speech 资源拿 `AZURE_SPEECH_KEY`/`AZURE_SPEECH_REGION`；想换供应商就配对应的 key 并把 `TTS_PROVIDER` 改成 `elevenlabs`/`deepgram`/`cartesia`。
+必填：[Deepgram](https://console.deepgram.com)（STT）、[OpenRouter](https://openrouter.ai/keys)（对话，`OPENROUTER_API_KEY` + `OPENROUTER_MODEL`）。TTS 默认走 Azure，去 [Azure AI Speech](https://portal.azure.com) 建一个 Speech 资源拿 `AZURE_SPEECH_KEY`/`AZURE_SPEECH_REGION`；想换供应商就配对应的 key 并把 `TTS_PROVIDER` 改成 `elevenlabs`/`deepgram`/`cartesia`。
 
 流程：首页选场景（职场协作/面试）、写场景描述、可选传JD/简历 → `/practice` 语音对话 → 结束后 `/report` 生成结构化报告 → `/history` 看本地历史记录。
 

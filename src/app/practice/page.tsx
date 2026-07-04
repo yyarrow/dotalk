@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useDeepgramLive } from "@/lib/useDeepgramLive";
-import type { ScenarioConfig, TranscriptTurn, TurnResponse } from "@/lib/schemas";
+import { streamAndSpeak, fetchCoaching } from "@/lib/voiceTurn";
+import type { ScenarioConfig, TranscriptTurn } from "@/lib/schemas";
 
 type Status = "idle" | "listening" | "thinking" | "speaking";
 
@@ -22,98 +23,107 @@ function readScenario(): ScenarioConfig | null {
 
 export default function PracticePage() {
   const router = useRouter();
-  const [scenario] = useState<ScenarioConfig | null>(() => readScenario());
+  // Start null on both server and client so the first client render matches
+  // the SSR output; the sessionStorage read happens in an effect after mount
+  // (reading it during render would desync SSR/client and break hydration).
+  const [scenario, setScenario] = useState<ScenarioConfig | null>(null);
   const [transcript, setTranscript] = useState<TranscriptTurn[]>([]);
   const [interim, setInterim] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState("");
 
   const transcriptRef = useRef<TranscriptTurn[]>([]);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const turnAbortRef = useRef<AbortController | null>(null);
   const startedRef = useRef(false);
   const handleUserTurnRef = useRef<(text: string) => void>(() => {});
 
   const { start, stop, isListening } = useDeepgramLive();
 
   useEffect(() => {
-    if (!scenario) router.replace("/");
-  }, [scenario, router]);
+    const stored = readScenario();
+    if (!stored) {
+      router.replace("/");
+      return;
+    }
+    // sessionStorage can't be read during SSR, so this post-mount setState is
+    // the intended way to hydrate it without an SSR/client mismatch.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setScenario(stored);
+  }, [router]);
 
-  const appendTurn = useCallback((turn: TranscriptTurn) => {
+  // Appends a turn and returns the index it landed at, so callers can patch
+  // that exact turn later (streamed reply text, or async coaching feedback).
+  const appendTurn = useCallback((turn: TranscriptTurn): number => {
     transcriptRef.current = [...transcriptRef.current, turn];
     setTranscript(transcriptRef.current);
+    return transcriptRef.current.length - 1;
   }, []);
 
-  const patchLastTurn = useCallback((patch: Partial<TranscriptTurn>) => {
-    const next = [...transcriptRef.current];
-    next[next.length - 1] = { ...next[next.length - 1], ...patch };
-    transcriptRef.current = next;
-    setTranscript(next);
-  }, []);
-
-  const requestTurn = useCallback(
-    async (userMessage: string, history: TranscriptTurn[]) => {
-      if (!scenario) return null;
-      const res = await fetch("/api/turn", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scenario, history, userMessage }),
-      });
-      if (!res.ok) throw new Error("对话生成失败，稍后重试");
-      return (await res.json()) as TurnResponse;
+  const patchTurnAt = useCallback(
+    (index: number, patch: Partial<TranscriptTurn>) => {
+      const next = [...transcriptRef.current];
+      if (!next[index]) return;
+      next[index] = { ...next[index], ...patch };
+      transcriptRef.current = next;
+      setTranscript(next);
     },
-    [scenario],
+    [],
   );
 
-  const playReply = useCallback(async (text: string) => {
-    setStatus("speaking");
-    const res = await fetch("/api/tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+  const startListening = useCallback(() => {
+    setStatus("listening");
+    start({
+      onFinalTranscript: (t) => {
+        setInterim("");
+        handleUserTurnRef.current(t);
+      },
+      onInterimTranscript: setInterim,
+      onError: (e) => setError(e instanceof Error ? e.message : String(e)),
     });
-    if (!res.ok) throw new Error("语音合成失败");
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    audioRef.current = audio;
-    await new Promise<void>((resolve) => {
-      audio.addEventListener("ended", () => resolve(), { once: true });
-      audio.play().catch(() => resolve());
-    });
-    URL.revokeObjectURL(url);
-  }, []);
+  }, [start]);
 
   const handleUserTurn = useCallback(
     async (text: string) => {
+      if (!scenario) return;
       stop();
-      setStatus("thinking");
+      const abort = new AbortController();
+      turnAbortRef.current = abort;
       const historySnapshot = transcriptRef.current;
-      appendTurn({ role: "user", text });
+      const userIndex = appendTurn({ role: "user", text });
+      const assistantIndex = appendTurn({ role: "assistant", text: "" });
+
+      // Coaching runs in parallel and patches the user turn when it returns —
+      // it must never block the spoken reply.
+      void fetchCoaching(scenario, text, historySnapshot, abort.signal).then(
+        (coaching) => {
+          if (coaching) {
+            patchTurnAt(userIndex, {
+              corrections: coaching.corrections,
+              toneNote: coaching.toneNote,
+            });
+          }
+        },
+      );
+
       try {
-        const turnResponse = await requestTurn(text, historySnapshot);
-        if (!turnResponse) return;
-        patchLastTurn({
-          corrections: turnResponse.corrections,
-          toneNote: turnResponse.toneNote,
+        setStatus("thinking");
+        await streamAndSpeak({
+          scenario,
+          history: historySnapshot,
+          userMessage: text,
+          onText: (partial) => patchTurnAt(assistantIndex, { text: partial }),
+          onSpeakingStart: () => setStatus("speaking"),
+          signal: abort.signal,
         });
-        appendTurn({ role: "assistant", text: turnResponse.reply });
-        await playReply(turnResponse.reply);
-        setStatus("listening");
-        start({
-          onFinalTranscript: (t) => {
-            setInterim("");
-            handleUserTurnRef.current(t);
-          },
-          onInterimTranscript: setInterim,
-          onError: (e) => setError(e instanceof Error ? e.message : String(e)),
-        });
+        if (abort.signal.aborted) return;
+        startListening();
       } catch (e) {
+        if (abort.signal.aborted) return;
         setError(e instanceof Error ? e.message : String(e));
         setStatus("idle");
       }
     },
-    [stop, start, appendTurn, patchLastTurn, requestTurn, playReply],
+    [scenario, stop, appendTurn, patchTurnAt, startListening],
   );
 
   useEffect(() => {
@@ -123,32 +133,36 @@ export default function PracticePage() {
   useEffect(() => {
     if (!scenario || startedRef.current) return;
     startedRef.current = true;
+    const abort = new AbortController();
+    turnAbortRef.current = abort;
+    const assistantIndex = appendTurn({ role: "assistant", text: "" });
     (async () => {
-      setStatus("thinking");
       try {
-        const turnResponse = await requestTurn("", []);
-        if (!turnResponse) return;
-        appendTurn({ role: "assistant", text: turnResponse.reply });
-        await playReply(turnResponse.reply);
-        setStatus("listening");
-        start({
-          onFinalTranscript: (t) => {
-            setInterim("");
-            handleUserTurnRef.current(t);
-          },
-          onInterimTranscript: setInterim,
-          onError: (e) => setError(e instanceof Error ? e.message : String(e)),
+        setStatus("thinking");
+        await streamAndSpeak({
+          scenario,
+          history: [],
+          userMessage: "",
+          onText: (partial) => patchTurnAt(assistantIndex, { text: partial }),
+          onSpeakingStart: () => setStatus("speaking"),
+          signal: abort.signal,
         });
+        if (abort.signal.aborted) return;
+        startListening();
       } catch (e) {
+        if (abort.signal.aborted) return;
         setError(e instanceof Error ? e.message : String(e));
         setStatus("idle");
       }
     })();
-  }, [scenario, requestTurn, appendTurn, playReply, start]);
+  }, [scenario, appendTurn, patchTurnAt, startListening]);
+
+  // Stop any in-flight reply/audio if the user leaves the page.
+  useEffect(() => () => turnAbortRef.current?.abort(), []);
 
   const handleEnd = () => {
+    turnAbortRef.current?.abort();
     stop();
-    audioRef.current?.pause();
     sessionStorage.setItem("dotalk:transcript", JSON.stringify(transcriptRef.current));
     router.push("/report");
   };

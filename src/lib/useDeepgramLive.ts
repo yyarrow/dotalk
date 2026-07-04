@@ -47,9 +47,18 @@ export function useDeepgramLive() {
         if (!tokenRes.ok) throw new Error("Failed to fetch Deepgram token");
         const { access_token } = await tokenRes.json();
 
+        // Deepgram Flux (/v2/listen) authenticates the browser WebSocket via
+        // the "bearer" subprotocol keyword — "token" (the v1 style) returns
+        // 401 here. Browsers can't set an Authorization header on a WS, so the
+        // token rides in Sec-WebSocket-Protocol as ["bearer", <jwt>].
         const socket = new WebSocket(
-          "wss://api.deepgram.com/v2/listen?model=flux-general-en&encoding=linear16&sample_rate=16000&eot_threshold=0.7",
-          ["token", access_token],
+          // eot_threshold 0.8 (up from the 0.7 default) makes Flux wait for
+          // stronger confidence before declaring end-of-turn, so a mid-thought
+          // pause no longer cuts the speaker off. Range is 0.5–0.9; higher =
+          // more patient at the cost of a little latency (negligible next to
+          // the LLM). eot_timeout_ms still ends the turn after 5s of silence.
+          "wss://api.deepgram.com/v2/listen?model=flux-general-en&encoding=linear16&sample_rate=16000&eot_threshold=0.8",
+          ["bearer", access_token],
         );
         socket.binaryType = "arraybuffer";
         socketRef.current = socket;

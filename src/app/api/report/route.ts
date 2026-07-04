@@ -1,5 +1,5 @@
 import { generateObject } from "ai";
-import { dialogueModel } from "@/lib/deepseek";
+import { reportModel } from "@/lib/dialogue";
 import { buildReportPrompt } from "@/lib/prompts";
 import {
   ScenarioConfigSchema,
@@ -17,7 +17,7 @@ export async function POST(req: Request) {
     .join("\n");
 
   const { object } = await generateObject({
-    model: dialogueModel,
+    model: reportModel,
     schema: SessionReportSchema,
     system: buildReportPrompt(scenario),
     prompt: transcriptText || "（本次没有产生任何对话）",

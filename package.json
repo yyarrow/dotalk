@@ -9,7 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@ai-sdk/deepseek": "^3.0.3",
+    "@ai-sdk/openai-compatible": "^3.0.3",
     "@deepgram/sdk": "^5.5.0",
     "ai": "^7.0.11",
     "mammoth": "^1.12.0",

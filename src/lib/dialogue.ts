@@ -10,12 +10,14 @@ const openrouter = createOpenAICompatible({
   supportsStructuredOutputs: true,
 });
 
-// Turn-by-turn conversation is latency-critical: the user waits for this
-// on every reply. A fast, non-reasoning chat model (deepseek-chat / a
-// flash model) has ~1.7s time-to-first-token, vs ~5-8s for a reasoning
-// model like deepseek-v4-pro — so default the live loop to the fast one.
+// Turn-by-turn conversation (spoken reply + coaching) is latency-critical:
+// the user waits for this on every reply. deepseek-v4-flash has ~1s
+// time-to-first-token (measured, on par with deepseek-chat) but is a newer
+// v4-family model and ~4x cheaper on output — a straight upgrade for the
+// live loop. Reasoning models (deepseek-v4-pro) are no faster here (the
+// OpenRouter hop dominates) and cost more, so keep them off the hot path.
 export const turnModel = openrouter(
-  process.env.OPENROUTER_TURN_MODEL ?? "deepseek/deepseek-chat",
+  process.env.OPENROUTER_TURN_MODEL ?? "deepseek/deepseek-v4-flash",
 );
 
 // The end-of-session report is quality-critical and not latency-sensitive

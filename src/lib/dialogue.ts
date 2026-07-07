@@ -1,6 +1,4 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { ProxyAgent, fetch as undiciFetch } from "undici";
 
 // LLMs accessed through OpenRouter's OpenAI-compatible API.
 const openrouter = createOpenAICompatible({
@@ -29,27 +27,5 @@ export const reportModel = openrouter(
   process.env.OPENROUTER_MODEL ?? "deepseek/deepseek-v4-pro",
 );
 
-// Audio-native observer (Gemini): understands mixed Chinese/English speech and
-// gives pronunciation feedback from the raw audio. It runs in parallel and is
-// not latency-critical. In restricted regions, local dev can route Google
-// through GEMINI_PROXY; on Vercel the call originates server-side, so no proxy.
-const geminiDispatcher = process.env.GEMINI_PROXY
-  ? new ProxyAgent(process.env.GEMINI_PROXY)
-  : undefined;
-
-const google = createGoogleGenerativeAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  ...(geminiDispatcher
-    ? {
-        fetch: ((input: RequestInfo | URL, init?: RequestInit) =>
-          undiciFetch(input as string, {
-            ...(init as Record<string, unknown>),
-            dispatcher: geminiDispatcher,
-          })) as unknown as typeof fetch,
-      }
-    : {}),
-});
-
-export const observerModel = google(
-  process.env.GEMINI_MODEL ?? "gemini-3.1-flash",
-);
+// The audio observer (mixed-language understanding + pronunciation feedback)
+// calls OpenRouter directly from its route — see src/app/api/observe/route.ts.

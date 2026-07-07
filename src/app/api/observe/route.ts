@@ -1,5 +1,4 @@
-import { generateObject } from "ai";
-import { observerModel } from "@/lib/dialogue";
+import { ProxyAgent, fetch as undiciFetch } from "undici";
 import { buildObservePrompt } from "@/lib/prompts";
 import {
   ObservationSchema,
@@ -13,7 +12,23 @@ import {
 // interviewer can act on (bilingual mode), grammar corrections, a suggested
 // English phrasing for anything said in Chinese, and pronunciation notes.
 // Not latency-critical — it runs in parallel with the spoken reply.
+//
+// We call OpenRouter directly (rather than through the AI SDK) with an
+// OpenAI-style `input_audio` request.
+//
+// Region note: OpenRouter serves DeepSeek to the app's region but blocks Gemini
+// there. `curl`/Node-with-proxy exit via an allowed region and work; a direct
+// Node fetch is refused ("not available in your region"). So in local dev we
+// route this one call through OPENROUTER_PROXY. On Vercel the server is already
+// in an allowed region, so no proxy env is set and the call goes direct.
 export const maxDuration = 30;
+
+const OBSERVER_MODEL =
+  process.env.OPENROUTER_OBSERVER_MODEL ?? "google/gemini-3.5-flash";
+
+const proxyDispatcher = process.env.OPENROUTER_PROXY
+  ? new ProxyAgent(process.env.OPENROUTER_PROXY)
+  : undefined;
 
 export async function POST(req: Request) {
   const form = await req.formData();
@@ -29,9 +44,7 @@ export async function POST(req: Request) {
     typeof historyRaw === "string" ? JSON.parse(historyRaw) : []
   ) as TranscriptTurn[];
 
-  const bytes = new Uint8Array(await audio.arrayBuffer());
-  const mediaType = audio.type || "audio/wav";
-
+  const base64 = Buffer.from(await audio.arrayBuffer()).toString("base64");
   const lastAssistant = [...history]
     .reverse()
     .find((t) => t.role === "assistant");
@@ -39,22 +52,51 @@ export async function POST(req: Request) {
     ? `对话对象刚说：${lastAssistant.text}`
     : "这是对话的开场。";
 
+  const body = {
+    model: OBSERVER_MODEL,
+    messages: [
+      { role: "system", content: buildObservePrompt(scenario) },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: `${contextLine}\n\n只返回一个 JSON 对象，字段：transcript(string)、englishForInterviewer(string)、corrections(数组，每项含 original/suggestion/reason)、suggestedEnglish(string，可省略)、pronunciationNotes(string，可省略)。不要多余文字。`,
+          },
+          { type: "input_audio", input_audio: { data: base64, format: "wav" } },
+        ],
+      },
+    ],
+    response_format: { type: "json_object" as const },
+  };
+
   try {
-    const { object } = await generateObject({
-      model: observerModel,
-      schema: ObservationSchema,
-      system: buildObservePrompt(scenario),
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: contextLine },
-            { type: "file", mediaType, data: bytes },
-          ],
+    const res = await undiciFetch(
+      "https://openrouter.ai/api/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          "Content-Type": "application/json",
         },
-      ],
-    });
-    return Response.json(object);
+        body: JSON.stringify(body),
+        ...(proxyDispatcher ? { dispatcher: proxyDispatcher } : {}),
+      },
+    );
+    if (!res.ok) {
+      return new Response(await res.text(), { status: 502 });
+    }
+    const data = (await res.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    const raw: string = data?.choices?.[0]?.message?.content ?? "";
+    const cleaned = raw
+      .trim()
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/```$/, "")
+      .trim();
+    const observation = ObservationSchema.parse(JSON.parse(cleaned));
+    return Response.json(observation);
   } catch (error) {
     return new Response(error instanceof Error ? error.message : String(error), {
       status: 502,

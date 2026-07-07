@@ -1,6 +1,11 @@
 "use client";
 
-import type { Coaching, ScenarioConfig, TranscriptTurn } from "./schemas";
+import type {
+  Coaching,
+  Observation,
+  ScenarioConfig,
+  TranscriptTurn,
+} from "./schemas";
 
 interface StreamAndSpeakOpts {
   scenario: ScenarioConfig;
@@ -213,6 +218,34 @@ function playElement(
     // If synthesis fails before there's anything playable, don't hang the chain.
     buffered?.catch(finish);
   });
+}
+
+// Sends a turn's raw audio to the Gemini observer. Returns a faithful
+// transcript, an English rendering the interviewer can act on (bilingual mode),
+// grammar corrections, a suggested English phrasing for anything said in
+// Chinese, and pronunciation notes. Returns null on failure/cancel so callers
+// can fall back (e.g. to the text coach) without breaking the flow.
+export async function observeTurn(
+  scenario: ScenarioConfig,
+  audio: Blob,
+  history: TranscriptTurn[],
+  signal: AbortSignal,
+): Promise<Observation | null> {
+  try {
+    const form = new FormData();
+    form.append("audio", audio, "turn.wav");
+    form.append("scenario", JSON.stringify(scenario));
+    form.append("history", JSON.stringify(history));
+    const res = await fetch("/api/observe", {
+      method: "POST",
+      body: form,
+      signal,
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as Observation;
+  } catch {
+    return null;
+  }
 }
 
 // Fetches coaching feedback for the user's latest utterance in parallel with

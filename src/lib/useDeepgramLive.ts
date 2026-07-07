@@ -1,9 +1,13 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import { pcm16ToWavBlob } from "./wav";
 
 interface DeepgramHandlers {
-  onFinalTranscript: (transcript: string) => void;
+  // Fires once at end-of-turn with Deepgram's English transcript (used to drive
+  // the interviewer reply) plus the turn's audio as WAV (sent to the audio
+  // observer in parallel for accent + phrasing feedback).
+  onTurn: (transcript: string, audio: Blob) => void;
   onInterimTranscript?: (transcript: string) => void;
   onError?: (error: unknown) => void;
 }
@@ -27,6 +31,9 @@ export function useDeepgramLive() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
+  // PCM frames for the current turn, copied off the stream we send to Deepgram,
+  // so the same audio can be handed to the observer as WAV at end-of-turn.
+  const turnChunksRef = useRef<ArrayBuffer[]>([]);
 
   const stop = useCallback(() => {
     workletNodeRef.current?.disconnect();
@@ -72,7 +79,9 @@ export function useDeepgramLive() {
           }
           if (msg.type !== "TurnInfo" || !msg.transcript) return;
           if (msg.event === "EndOfTurn") {
-            handlers.onFinalTranscript(msg.transcript);
+            const audio = pcm16ToWavBlob(turnChunksRef.current, 16000);
+            turnChunksRef.current = [];
+            handlers.onTurn(msg.transcript, audio);
           } else {
             handlers.onInterimTranscript?.(msg.transcript);
           }
@@ -100,7 +109,10 @@ export function useDeepgramLive() {
         const workletNode = new AudioWorkletNode(audioContext, "pcm-worklet");
         workletNodeRef.current = workletNode;
 
+        turnChunksRef.current = [];
         workletNode.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
+          // Keep a copy for the WAV before the buffer is neutered by send().
+          turnChunksRef.current.push(event.data.slice(0));
           if (socket.readyState === WebSocket.OPEN) {
             socket.send(event.data);
           }

@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import type { ScenarioConfig, ScenarioMode } from "@/lib/schemas";
+import type { AssistMode, ScenarioConfig, ScenarioMode } from "@/lib/schemas";
 
 async function parseDocument(file: File): Promise<string> {
   const formData = new FormData();
@@ -19,6 +19,7 @@ async function parseDocument(file: File): Promise<string> {
 export default function ScenarioBuilderPage() {
   const router = useRouter();
   const [mode, setMode] = useState<ScenarioMode>("workplace");
+  const [assistMode, setAssistMode] = useState<AssistMode>("immersion");
   const [domainDescription, setDomainDescription] = useState("");
   const [jdText, setJdText] = useState("");
   const [resumeText, setResumeText] = useState("");
@@ -47,6 +48,7 @@ export default function ScenarioBuilderPage() {
     }
     const scenario: ScenarioConfig = {
       mode,
+      assistMode,
       domainDescription: domainDescription.trim(),
       jdText: jdText.trim() || undefined,
       resumeText: resumeText.trim() || undefined,
@@ -100,6 +102,38 @@ export default function ScenarioBuilderPage() {
           className="rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-black"
         />
       </label>
+
+      <div className="flex flex-col gap-2">
+        <span className="text-sm font-medium">语言模式</span>
+        {(
+          [
+            {
+              value: "immersion",
+              label: "沉浸模式",
+              hint: "对方只懂英文，逼你把话憋成英文说出来",
+            },
+            {
+              value: "bilingual",
+              label: "双语兜底",
+              hint: "卡壳时可以说中文，按住说话；对方照样听懂并继续，右侧告诉你英文该怎么说",
+            },
+          ] as const
+        ).map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => setAssistMode(option.value)}
+            className={`flex flex-col items-start rounded-lg border px-3 py-2 text-left transition ${
+              assistMode === option.value
+                ? "border-black bg-neutral-50"
+                : "border-neutral-200 hover:border-neutral-400"
+            }`}
+          >
+            <span className="text-sm font-medium">{option.label}</span>
+            <span className="text-xs text-neutral-500">{option.hint}</span>
+          </button>
+        ))}
+      </div>
 
       {mode === "interview" && (
         <div className="grid gap-4 sm:grid-cols-2">

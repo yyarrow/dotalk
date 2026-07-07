@@ -38,6 +38,20 @@ toneNote：只有当语气/得体度有明显问题（太直接、太生硬、�
 ${buildContext(scenario)}`;
 }
 
+// Prompt for the audio-native observer (Gemini). It receives the raw audio of
+// one user turn and returns the Observation schema.
+export function buildObservePrompt(scenario: ScenarioConfig): string {
+  return `你是英语口语教练，正在旁听用户的${scenario.mode === "interview" ? "模拟面试" : "职场协作"}练习。附带的音频是用户刚说的一段话——可能是英文，也可能中英混说（英文卡壳时他会临时用中文顶一下）。请听音频后输出：
+
+transcript：如实转写他说的内容，中英混说就原样保留。
+englishForInterviewer：把这段话（含中文部分的意思）整理成通顺、地道、第一人称的英文，就像他本想用英文说出来的样子——这会作为对话对象听到的内容用来推进对话。
+corrections：针对他说出的英文，指出语法/用词/不地道之处，给更好的说法和一句话原因；没有就空数组，别硬凑。
+suggestedEnglish：如果他有明显说不出、用中文顶替或卡壳的意思，告诉他那个意思地道的英文该怎么说；全程英文流畅就不填。
+pronunciationNotes：根据音频里的实际发音，指出明显的发音/口音问题（某个音发不准、重音、连读等），定性描述即可，绝不编造；没有明显问题就不填。
+
+${buildContext(scenario)}`;
+}
+
 export function buildReportPrompt(scenario: ScenarioConfig): string {
   const modeNote =
     scenario.mode === "interview"

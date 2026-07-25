@@ -24,7 +24,7 @@ import {
 export const maxDuration = 30;
 
 const OBSERVER_MODEL =
-  process.env.OPENROUTER_OBSERVER_MODEL ?? "google/gemini-3.5-flash";
+  process.env.OPENROUTER_OBSERVER_MODEL ?? "google/gemini-3.6-flash";
 
 const proxyDispatcher = process.env.OPENROUTER_PROXY
   ? new ProxyAgent(process.env.OPENROUTER_PROXY)

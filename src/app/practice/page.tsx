@@ -9,6 +9,7 @@ import {
   observeTurn,
   fetchCoaching,
 } from "@/lib/voiceTurn";
+import { saveHistoryEntry } from "@/lib/history";
 import type { ScenarioConfig, TranscriptTurn } from "@/lib/schemas";
 
 type Status = "idle" | "listening" | "thinking" | "speaking";
@@ -237,6 +238,19 @@ export default function PracticePage() {
   const handleEnd = () => {
     turnAbortRef.current?.abort();
     stop();
+    if (!scenario) return;
+    // Persist the transcript to history right now, before the report exists,
+    // so a failed/slow report can't lose it. The report page fills in the
+    // report on this same entry (by id).
+    const sessionId = crypto.randomUUID();
+    saveHistoryEntry({
+      id: sessionId,
+      createdAt: new Date().toISOString(),
+      scenario,
+      transcript: transcriptRef.current,
+      report: null,
+    });
+    sessionStorage.setItem("dotalk:sessionId", sessionId);
     sessionStorage.setItem(
       "dotalk:transcript",
       JSON.stringify(transcriptRef.current),

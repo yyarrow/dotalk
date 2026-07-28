@@ -1,17 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ReportView } from "@/components/ReportView";
-import { saveHistoryEntry } from "@/lib/history";
+import { saveHistoryEntry, setHistoryReport } from "@/lib/history";
 import type { ScenarioConfig, SessionReport, TranscriptTurn } from "@/lib/schemas";
 
 export default function ReportPage() {
   const router = useRouter();
   const [report, setReport] = useState<SessionReport | null>(null);
   const [error, setError] = useState("");
+  // Guard against React's double-effect in dev, which would otherwise fire two
+  // /api/report calls and save two history entries.
+  const startedRef = useRef(false);
 
   useEffect(() => {
+    if (startedRef.current) return;
+    startedRef.current = true;
+
     const scenarioRaw = sessionStorage.getItem("dotalk:scenario");
     const transcriptRaw = sessionStorage.getItem("dotalk:transcript");
     if (!scenarioRaw || !transcriptRaw) {
@@ -20,6 +26,10 @@ export default function ReportPage() {
     }
     const scenario = JSON.parse(scenarioRaw) as ScenarioConfig;
     const transcript = JSON.parse(transcriptRaw) as TranscriptTurn[];
+    // Entry was already saved (transcript, report: null) when the session
+    // ended; we fill in the report here. Fall back to creating one if we got
+    // here without a session id (e.g. direct navigation).
+    const sessionId = sessionStorage.getItem("dotalk:sessionId");
 
     (async () => {
       try {
@@ -31,13 +41,17 @@ export default function ReportPage() {
         if (!res.ok) throw new Error("报告生成失败");
         const data = (await res.json()) as SessionReport;
         setReport(data);
-        saveHistoryEntry({
-          id: crypto.randomUUID(),
-          createdAt: new Date().toISOString(),
-          scenario,
-          transcript,
-          report: data,
-        });
+        if (sessionId) {
+          setHistoryReport(sessionId, data);
+        } else {
+          saveHistoryEntry({
+            id: crypto.randomUUID(),
+            createdAt: new Date().toISOString(),
+            scenario,
+            transcript,
+            report: data,
+          });
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }
@@ -66,7 +80,14 @@ export default function ReportPage() {
         </div>
       </div>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && (
+        <div className="text-sm">
+          <p className="text-red-600">{error}</p>
+          <p className="mt-1 text-neutral-500">
+            这次的聊天记录已经存进历史了，没丢——可以到「历史记录」里查看原文。
+          </p>
+        </div>
+      )}
       {!report && !error && <p className="text-sm text-neutral-400">生成报告中…</p>}
       {report && <ReportView report={report} />}
     </main>

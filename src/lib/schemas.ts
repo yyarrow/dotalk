@@ -110,5 +110,7 @@ export interface SessionHistoryEntry {
   createdAt: string;
   scenario: ScenarioConfig;
   transcript: TranscriptTurn[];
-  report: SessionReport;
+  // Saved as null the moment a session ends; filled in once the report is
+  // generated. Kept nullable so the transcript survives a failed report.
+  report: SessionReport | null;
 }

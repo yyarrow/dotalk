@@ -25,7 +25,7 @@ export default function HistoryPage() {
         <h1 className="text-xl font-semibold">历史记录</h1>
         <button
           type="button"
-          onClick={() => router.push("/")}
+          onClick={() => router.push("/new")}
           className="rounded-full bg-black px-3 py-1 text-sm text-white"
         >
           新练习

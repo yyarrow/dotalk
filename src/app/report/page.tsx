@@ -72,7 +72,7 @@ export default function ReportPage() {
           </button>
           <button
             type="button"
-            onClick={() => router.push("/")}
+            onClick={() => router.push("/new")}
             className="rounded-full bg-black px-3 py-1 text-white"
           >
             再练一次

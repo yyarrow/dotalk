@@ -1,8 +1,16 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AssistMode, ScenarioConfig, ScenarioMode } from "@/lib/schemas";
+
+interface JdEntry {
+  id: string;
+  title: string;
+  text: string;
+}
+
+const JD_HISTORY_KEY = "dotalk:jdHistory";
 
 async function parseDocument(file: File): Promise<string> {
   const formData = new FormData();
@@ -25,6 +33,43 @@ export default function ScenarioBuilderPage() {
   const [resumeText, setResumeText] = useState("");
   const [parsing, setParsing] = useState<"jd" | "resume" | null>(null);
   const [error, setError] = useState("");
+  const [jdHistory, setJdHistory] = useState<JdEntry[]>([]);
+
+  // localStorage can't be read during SSR/render, so hydrate the saved-JD list
+  // after mount.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(JD_HISTORY_KEY);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (raw) setJdHistory(JSON.parse(raw) as JdEntry[]);
+    } catch {
+      // ignore malformed cache
+    }
+  }, []);
+
+  const persistHistory = (next: JdEntry[]) => {
+    setJdHistory(next);
+    try {
+      localStorage.setItem(JD_HISTORY_KEY, JSON.stringify(next));
+    } catch {
+      // ignore quota/availability errors
+    }
+  };
+
+  // Remember every JD actually used, deduped by content, newest first, capped.
+  const rememberJd = (text: string) => {
+    const t = text.trim();
+    if (!t) return;
+    const title = (t.split("\n").find((l) => l.trim()) ?? t).trim().slice(0, 40);
+    const deduped = jdHistory.filter((i) => i.text.trim() !== t);
+    persistHistory(
+      [{ id: crypto.randomUUID(), title, text: t }, ...deduped].slice(0, 10),
+    );
+  };
+
+  const deleteJd = (id: string) => {
+    persistHistory(jdHistory.filter((i) => i.id !== id));
+  };
 
   const handleFile = async (kind: "jd" | "resume", file: File | null) => {
     if (!file) return;
@@ -53,6 +98,7 @@ export default function ScenarioBuilderPage() {
       jdText: jdText.trim() || undefined,
       resumeText: resumeText.trim() || undefined,
     };
+    if (mode === "interview") rememberJd(jdText);
     sessionStorage.setItem("dotalk:scenario", JSON.stringify(scenario));
     router.push("/practice");
   };
@@ -136,22 +182,68 @@ export default function ScenarioBuilderPage() {
       </div>
 
       {mode === "interview" && (
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium">上传 JD（可选）</span>
-            <input
-              type="file"
-              accept=".pdf,.docx,.txt"
-              onChange={(e) => handleFile("jd", e.target.files?.[0] ?? null)}
-              className="text-sm"
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium">JD（可选）</span>
+            <textarea
+              value={jdText}
+              onChange={(e) => setJdText(e.target.value)}
+              placeholder="把职位描述整段粘贴进来（在 LinkedIn / 招聘页选中 → 复制 → 粘贴）。用过的会自动存到下面，下次点一下就行。"
+              rows={4}
+              className="rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-black"
             />
-            {parsing === "jd" && (
-              <span className="text-xs text-neutral-400">解析中…</span>
+            <div className="flex items-center gap-3 text-xs text-neutral-500">
+              <label className="cursor-pointer hover:text-neutral-900">
+                或上传文件（PDF/DOCX/TXT）
+                <input
+                  type="file"
+                  accept=".pdf,.docx,.txt"
+                  onChange={(e) => handleFile("jd", e.target.files?.[0] ?? null)}
+                  className="hidden"
+                />
+              </label>
+              {parsing === "jd" && <span className="text-neutral-400">解析中…</span>}
+              {jdText && parsing !== "jd" && (
+                <span className="text-green-600">{jdText.length} 字</span>
+              )}
+            </div>
+
+            {jdHistory.length > 0 && (
+              <div className="mt-1 flex flex-col gap-1">
+                <span className="text-xs text-neutral-400">历史 JD（点击复用）</span>
+                <div className="flex flex-wrap gap-2">
+                  {jdHistory.map((item) => (
+                    <span
+                      key={item.id}
+                      className={`inline-flex items-center overflow-hidden rounded-full border text-xs ${
+                        jdText.trim() === item.text.trim()
+                          ? "border-black bg-neutral-50"
+                          : "border-neutral-200"
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setJdText(item.text)}
+                        className="max-w-[16rem] truncate py-1 pl-3 pr-2 hover:text-black"
+                        title={item.title}
+                      >
+                        {item.title}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteJd(item.id)}
+                        className="px-2 py-1 text-neutral-400 hover:text-red-500"
+                        title="删除"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
             )}
-            {jdText && !parsing && (
-              <span className="text-xs text-green-600">已识别 {jdText.length} 字</span>
-            )}
-          </label>
+          </div>
+
           <label className="flex flex-col gap-1.5">
             <span className="text-sm font-medium">上传简历（可选）</span>
             <input

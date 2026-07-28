@@ -8,12 +8,21 @@ export type ScenarioMode = z.infer<typeof ScenarioModeSchema>;
 export const AssistModeSchema = z.enum(["immersion", "bilingual"]);
 export type AssistMode = z.infer<typeof AssistModeSchema>;
 
+// Conversation-partner personality (label for display + prompt fragment to
+// inject). Absent = default, no injection. See src/lib/personas.ts.
+export const PersonaSchema = z.object({
+  label: z.string(),
+  prompt: z.string().min(1),
+});
+export type Persona = z.infer<typeof PersonaSchema>;
+
 export const ScenarioConfigSchema = z.object({
   mode: ScenarioModeSchema,
   assistMode: AssistModeSchema.default("immersion"),
   domainDescription: z
     .string()
     .min(1, "请描述一下场景，比如你的行业/岗位/这次要练什么"),
+  persona: PersonaSchema.optional(),
   jdText: z.string().optional(),
   resumeText: z.string().optional(),
 });

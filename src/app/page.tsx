@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { PERSONAS } from "@/lib/personas";
 import type { AssistMode, ScenarioConfig, ScenarioMode } from "@/lib/schemas";
 
 interface JdEntry {
@@ -28,6 +29,8 @@ export default function ScenarioBuilderPage() {
   const router = useRouter();
   const [mode, setMode] = useState<ScenarioMode>("workplace");
   const [assistMode, setAssistMode] = useState<AssistMode>("immersion");
+  const [personaId, setPersonaId] = useState("default");
+  const [customPersona, setCustomPersona] = useState("");
   const [domainDescription, setDomainDescription] = useState("");
   const [jdText, setJdText] = useState("");
   const [resumeText, setResumeText] = useState("");
@@ -91,10 +94,24 @@ export default function ScenarioBuilderPage() {
       setError("先写一下这次练什么场景");
       return;
     }
+    // Resolve the chosen persona: a custom one takes its text as the prompt;
+    // a preset uses its prompt; "default" (empty prompt) injects nothing.
+    let persona: ScenarioConfig["persona"];
+    if (personaId === "custom") {
+      const p = customPersona.trim();
+      if (p) persona = { label: "自定义", prompt: p };
+    } else {
+      const preset = PERSONAS.find((x) => x.id === personaId);
+      if (preset && preset.prompt) {
+        persona = { label: preset.label, prompt: preset.prompt };
+      }
+    }
+
     const scenario: ScenarioConfig = {
       mode,
       assistMode,
       domainDescription: domainDescription.trim(),
+      persona,
       jdText: jdText.trim() || undefined,
       resumeText: resumeText.trim() || undefined,
     };
@@ -179,6 +196,53 @@ export default function ScenarioBuilderPage() {
             <span className="text-xs text-neutral-500">{option.hint}</span>
           </button>
         ))}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <span className="text-sm font-medium">
+          对话对象风格<span className="text-neutral-400">（可选）</span>
+        </span>
+        <div className="flex flex-wrap gap-2">
+          {PERSONAS.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setPersonaId(p.id)}
+              title={p.blurb}
+              className={`rounded-full border px-3 py-1.5 text-xs transition ${
+                personaId === p.id
+                  ? "border-black bg-neutral-50 font-medium"
+                  : "border-neutral-200 text-neutral-600 hover:border-neutral-400"
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setPersonaId("custom")}
+            className={`rounded-full border px-3 py-1.5 text-xs transition ${
+              personaId === "custom"
+                ? "border-black bg-neutral-50 font-medium"
+                : "border-neutral-200 text-neutral-600 hover:border-neutral-400"
+            }`}
+          >
+            自定义
+          </button>
+        </div>
+        {personaId === "custom" ? (
+          <textarea
+            value={customPersona}
+            onChange={(e) => setCustomPersona(e.target.value)}
+            placeholder="描述你想让对方是什么样的人/什么风格，比如：一个挑剔的支付行业 CTO，语气强势，专抠系统设计的边界条件"
+            rows={2}
+            className="rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-black"
+          />
+        ) : (
+          <p className="text-xs text-neutral-400">
+            {PERSONAS.find((p) => p.id === personaId)?.blurb}
+          </p>
+        )}
       </div>
 
       {mode === "interview" && (

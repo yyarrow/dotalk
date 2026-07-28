@@ -18,11 +18,15 @@ export function buildReplyPrompt(scenario: ScenarioConfig): string {
       ? "你扮演面试官。结合上面的 JD 和简历（如果有），提出贴合这个岗位的面试问题，追问细节，像真实面试官一样根据回答调整下一个问题。"
       : "你扮演用户在职场协作场景里的对话对象（同事/上级/客户，具体角色由场景描述决定）。像真实工作场景一样回应、推进对话（比如追问、提出异议、给反馈），不要单纯附和。";
 
+  const personaInstruction = scenario.persona
+    ? `\n\n对话风格：${scenario.persona.prompt} 用英文对话时自然地体现这种风格，但始终保持得体、聚焦，不要出戏或改说中文。`
+    : "";
+
   return `你是一个帮助非英语母语职场人练习英语口语的陪练搭档，用英语和用户进行真实的职场/面试对话。
 
 ${buildContext(scenario)}
 
-${roleInstruction}
+${roleInstruction}${personaInstruction}
 
 只输出你作为对话角色接下来要说的英文内容本身：纯文本，不要任何解释、标注或 JSON。要自然、口语化、简短（1-2 句话），像真人对话，绝不长篇大论——这段文字会被直接朗读出来。
 如果这是开场（还没有任何用户发言），只用一句话：简短问候 + 直接抛出第一个问题或话题，不要寒暄。`;

@@ -59,12 +59,14 @@ export function useDeepgramLive() {
         // 401 here. Browsers can't set an Authorization header on a WS, so the
         // token rides in Sec-WebSocket-Protocol as ["bearer", <jwt>].
         const socket = new WebSocket(
-          // eot_threshold 0.9 (up from the 0.7 default) makes Flux wait for
-          // strong confidence before declaring end-of-turn, so a mid-thought
-          // pause no longer cuts the speaker off. Max is 0.9; higher = more
-          // patient at the cost of a little latency (negligible next to the
-          // LLM). eot_timeout_ms still ends the turn after 5s of silence.
-          "wss://api.deepgram.com/v2/listen?model=flux-general-en&encoding=linear16&sample_rate=16000&eot_threshold=0.9",
+          // End-of-turn fires on EITHER confidence >= eot_threshold OR
+          // eot_timeout_ms of silence (OR logic; the silence timer resets on
+          // new speech). 0.9 was too patient: long, disfluent answers rarely
+          // reach 0.9, so they fell back to the 5s silence default and felt
+          // sluggish. 0.8 still guards against mid-thought pauses but confirms
+          // a genuine finish faster; a 3.5s timeout tightens the low-confidence
+          // tail without cutting normal thinking pauses.
+          "wss://api.deepgram.com/v2/listen?model=flux-general-en&encoding=linear16&sample_rate=16000&eot_threshold=0.8&eot_timeout_ms=3500",
           ["bearer", access_token],
         );
         socket.binaryType = "arraybuffer";

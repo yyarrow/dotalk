@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { loadHistoryEntry, setHistoryDrills } from "@/lib/history";
+import { addToDeck } from "@/lib/deck";
 import type { DrillSet, SessionHistoryEntry } from "@/lib/schemas";
 
 async function speak(text: string) {
@@ -62,6 +63,7 @@ export default function TrainPage() {
       const data = (await res.json()) as DrillSet;
       setDrills(data);
       setHistoryDrills(target.id, data);
+      addToDeck(data.phrases); // feed the spaced-repetition review deck
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -83,6 +85,7 @@ export default function TrainPage() {
     if (found.drills) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setDrills(found.drills);
+      addToDeck(found.drills.phrases); // idempotent (deduped by target)
     } else {
       void generate(found);
     }

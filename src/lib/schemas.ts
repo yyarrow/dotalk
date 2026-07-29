@@ -114,6 +114,34 @@ export interface TranscriptTurn {
   pronunciationNotes?: string;
 }
 
+// Targeted-training material generated from one session's transcript/report.
+// phrases → vocabulary gaps; retries → re-answer a fumbled question; shadow →
+// read a cleaned-up model answer aloud.
+export const DrillPhraseSchema = z.object({
+  target: z.string().describe("一个地道的英文表达/搭配/领域术语（用户这场缺的）"),
+  meaning: z.string().describe("中文含义或使用场景，帮助理解什么时候用"),
+  example: z.string().describe("用这个表达的一句地道英文例句（贴合用户的领域）"),
+});
+
+export const DrillRetrySchema = z.object({
+  question: z.string().describe("面试官/对方这场问过、用户答得不好的问题（英文）"),
+  skeleton: z
+    .string()
+    .describe("模范答法的骨架：一句话概括 + 分层要点，引导用户重新组织（英文要点为主）"),
+});
+
+export const DrillShadowSchema = z.object({
+  model: z.string().describe("把用户某段磕巴/碎片化的回答改写成的干净、地道的模范答案（英文，可朗读跟读）"),
+  focus: z.string().describe("这段重点练什么，中文一句，比如'减少 filler'、'先总后分'"),
+});
+
+export const DrillSetSchema = z.object({
+  phrases: z.array(DrillPhraseSchema).describe("5-8 个最该掌握的表达"),
+  retries: z.array(DrillRetrySchema).describe("2-3 个值得重答的问题"),
+  shadow: z.array(DrillShadowSchema).describe("2-3 段可跟读的模范答案"),
+});
+export type DrillSet = z.infer<typeof DrillSetSchema>;
+
 export interface SessionHistoryEntry {
   id: string;
   createdAt: string;

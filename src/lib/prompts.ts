@@ -56,6 +56,19 @@ pronunciationNotes：根据音频里的实际发音，指出明显的发音/口�
 ${buildContext(scenario)}`;
 }
 
+// Prompt for turning one session into targeted training material.
+export function buildDrillsPrompt(scenario: ScenarioConfig): string {
+  return `你是英语口语教练。下面是用户一次${scenario.mode === "interview" ? "模拟面试" : "职场协作"}练习的完整对话记录（含教练之前标注的纠错/更地道说法）。请针对**这位用户在这场里暴露的具体问题**，生成个性化训练材料，全部贴合他的领域，不要泛泛：
+
+phrases：他明显缺的、想说却说不出的地道表达/搭配/术语，5-8 个。每个给 target(英文表达)、meaning(中文含义或何时用)、example(用它的地道英文例句)。优先选他这场真的卡住或用错的。
+retries：他答得不好、值得重新组织再答一遍的问题，2-3 个。question 用对方问过的英文原问，skeleton 给"一句话概括 + 分层要点"的模范骨架，引导他重答。
+shadow：把他某段磕巴/碎片化的回答改写成干净、地道、可直接朗读跟读的模范答案，2-3 段。model 是改写后的英文答案，focus 用中文一句点明这段重点练什么。
+
+只基于记录里真实出现的问题，别编造他没提过的内容。
+
+场景：${scenario.domainDescription}`;
+}
+
 export function buildReportPrompt(scenario: ScenarioConfig): string {
   const modeNote =
     scenario.mode === "interview"

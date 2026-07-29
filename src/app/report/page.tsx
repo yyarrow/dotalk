@@ -72,6 +72,16 @@ export default function ReportPage() {
           </button>
           <button
             type="button"
+            onClick={() => {
+              const id = sessionStorage.getItem("dotalk:sessionId");
+              router.push(id ? `/train?id=${id}` : "/history");
+            }}
+            className="rounded-full border border-black px-3 py-1 hover:bg-neutral-100"
+          >
+            针对性训练
+          </button>
+          <button
+            type="button"
             onClick={() => router.push("/new")}
             className="rounded-full bg-black px-3 py-1 text-white"
           >

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ReportView } from "@/components/ReportView";
@@ -78,6 +79,13 @@ export default function HistoryPage() {
 
             {openId === entry.id && (
               <div className="mt-4 space-y-5 border-t border-neutral-100 pt-4">
+                <Link
+                  href={`/train?id=${entry.id}`}
+                  className="inline-block rounded-full border border-black px-3 py-1 text-xs hover:bg-neutral-100"
+                >
+                  针对性训练 →
+                </Link>
+
                 {/* The original conversation. */}
                 <section>
                   <h2 className="mb-2 text-sm font-semibold text-neutral-800">

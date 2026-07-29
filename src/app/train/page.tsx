@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { loadHistoryEntry } from "@/lib/history";
+import { useCallback, useEffect, useState } from "react";
+import { loadHistoryEntry, setHistoryDrills } from "@/lib/history";
 import type { DrillSet, SessionHistoryEntry } from "@/lib/schemas";
 
 async function speak(text: string) {
@@ -40,34 +40,53 @@ function PlayButton({ text }: { text: string }) {
 export default function TrainPage() {
   const [entry, setEntry] = useState<SessionHistoryEntry | null>(null);
   const [drills, setDrills] = useState<DrillSet | null>(null);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // Generates drills for an entry and caches them on the history record so a
+  // later visit reuses the result instead of re-calling the reasoning model.
+  const generate = useCallback(async (target: SessionHistoryEntry) => {
+    setLoading(true);
+    setError("");
+    setDrills(null);
+    try {
+      const res = await fetch("/api/drills", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scenario: target.scenario,
+          transcript: target.transcript,
+        }),
+      });
+      if (!res.ok) throw new Error("训练材料生成失败，稍后再试");
+      const data = (await res.json()) as DrillSet;
+      setDrills(data);
+      setHistoryDrills(target.id, data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get("id");
     const found = id ? loadHistoryEntry(id) : null;
     if (!found) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setError("找不到这次练习记录，回历史记录里点「针对性训练」进来。");
       return;
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setEntry(found);
-    (async () => {
-      try {
-        const res = await fetch("/api/drills", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            scenario: found.scenario,
-            transcript: found.transcript,
-          }),
-        });
-        if (!res.ok) throw new Error("训练材料生成失败，稍后再试");
-        setDrills((await res.json()) as DrillSet);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      }
-    })();
-  }, []);
+    // Reuse cached drills if we already generated them for this session.
+    if (found.drills) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setDrills(found.drills);
+    } else {
+      void generate(found);
+    }
+  }, [generate]);
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-4 py-10">
@@ -88,16 +107,28 @@ export default function TrainPage() {
             </p>
           )}
         </div>
-        <Link
-          href="/history"
-          className="rounded-full border border-neutral-300 px-3 py-1 text-sm text-neutral-600 hover:bg-neutral-100"
-        >
-          历史记录
-        </Link>
+        <div className="flex gap-2">
+          {drills && entry && (
+            <button
+              type="button"
+              onClick={() => generate(entry)}
+              disabled={loading}
+              className="rounded-full border border-neutral-300 px-3 py-1 text-sm text-neutral-600 hover:bg-neutral-100 disabled:opacity-50"
+            >
+              重新生成
+            </button>
+          )}
+          <Link
+            href="/history"
+            className="rounded-full border border-neutral-300 px-3 py-1 text-sm text-neutral-600 hover:bg-neutral-100"
+          >
+            历史记录
+          </Link>
+        </div>
       </div>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
-      {!drills && !error && (
+      {loading && (
         <p className="text-sm text-neutral-400">
           正在根据这次练习生成针对性训练…（用的是较慢的模型，稍等）
         </p>

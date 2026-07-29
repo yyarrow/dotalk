@@ -1,4 +1,4 @@
-import type { SessionHistoryEntry, SessionReport } from "./schemas";
+import type { DrillSet, SessionHistoryEntry, SessionReport } from "./schemas";
 
 const KEY = "dotalk:history";
 
@@ -35,6 +35,15 @@ export function setHistoryReport(id: string, report: SessionReport) {
   const entry = history.find((e) => e.id === id);
   if (!entry) return;
   entry.report = report;
+  persist(history);
+}
+
+// Caches the generated training material on an entry so /train can reuse it.
+export function setHistoryDrills(id: string, drills: DrillSet) {
+  const history = loadHistory();
+  const entry = history.find((e) => e.id === id);
+  if (!entry) return;
+  entry.drills = drills;
   persist(history);
 }
 

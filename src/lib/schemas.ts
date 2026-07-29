@@ -150,4 +150,7 @@ export interface SessionHistoryEntry {
   // Saved as null the moment a session ends; filled in once the report is
   // generated. Kept nullable so the transcript survives a failed report.
   report: SessionReport | null;
+  // Cached targeted-training material, generated on first visit to /train and
+  // reused after (regenerating calls the reasoning model — see /api/drills).
+  drills?: DrillSet | null;
 }

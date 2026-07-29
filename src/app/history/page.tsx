@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ReportView } from "@/components/ReportView";
 import { deleteHistoryEntry, loadHistory } from "@/lib/history";
@@ -9,10 +9,15 @@ import type { SessionHistoryEntry } from "@/lib/schemas";
 
 export default function HistoryPage() {
   const router = useRouter();
-  const [entries, setEntries] = useState<SessionHistoryEntry[]>(() =>
-    loadHistory(),
-  );
+  const [entries, setEntries] = useState<SessionHistoryEntry[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
+
+  // Read localStorage after mount only — reading it in the initial render
+  // desyncs SSR (empty) from the client (populated) and breaks hydration.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setEntries(loadHistory());
+  }, []);
 
   const remove = (id: string) => {
     deleteHistoryEntry(id);

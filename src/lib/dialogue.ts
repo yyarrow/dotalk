@@ -47,7 +47,7 @@ const openrouterReasoning = createOpenAICompatible({
 });
 
 export const reportModel = openrouterReasoning(
-  process.env.OPENROUTER_MODEL ?? "google/gemini-3.6-flash",
+  process.env.OPENROUTER_MODEL ?? "google/gemini-3.8-flash",
 );
 
 // The audio observer (mixed-language understanding + pronunciation feedback)

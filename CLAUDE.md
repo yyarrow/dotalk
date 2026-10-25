@@ -12,7 +12,7 @@ pnpm dev        # build: pnpm build / lint: pnpm lint
 
 ## 架构决策(改动前先理解这几条)
 - **STT 浏览器直连 Deepgram Flux**:Vercel Functions 撑不住双工音频,所以浏览器直接 WebSocket 连 `wss://api.deepgram.com/v2/listen`,`/api/deepgram-token` 只负责发短时 JWT(1h);音频 16kHz PCM16,AudioWorklet 80ms 帧(`public/pcm-worklet.js`)。
-- **快慢双模型**:逐轮回复走 `OPENROUTER_TURN_MODEL`(默认 deepseek-v4-flash,延迟优先);会后报告走 `OPENROUTER_MODEL`(默认 deepseek-v4-pro)。LLM 统一 OpenRouter,配置在 `src/lib/dialogue.ts`。
+- **快慢双模型**:逐轮回复走 `OPENROUTER_TURN_MODEL`(默认 deepseek-v4.1-flash-1017,延迟优先);会后报告走 `OPENROUTER_MODEL`(默认 deepseek-v4-pro)。LLM 统一 OpenRouter,配置在 `src/lib/dialogue.ts`。
 - **TTS 可插拔**:`TTS_PROVIDER` = azure(默认)| elevenlabs | deepgram | cartesia,实现在 `src/lib/tts/*.ts`,加新供应商照这个模式。各家 key/voice 的 env 名见 `.env.example`(Cartesia 的 VOICE_ID 没有默认值,必填)。
 - **无状态 MVP**:无登录无数据库,场景配置 sessionStorage、历史 localStorage;对话是"对讲机模式"(AI 说话时闭麦),真打断需要 LiveKit/Pipecat 级别的编排服务,暂不做。
 

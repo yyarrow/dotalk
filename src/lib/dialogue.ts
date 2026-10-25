@@ -12,13 +12,13 @@ const openrouter = createOpenAICompatible({
 });
 
 // Turn-by-turn conversation (spoken reply + coaching) is latency-critical:
-// the user waits for this on every reply. deepseek-v4-flash has ~1s
-// time-to-first-token (measured, on par with deepseek-chat) but is a newer
-// v4-family model and ~4x cheaper on output — a straight upgrade for the
-// live loop. DeepSeek isn't region-blocked, so this stays on the direct
-// provider (no proxy hop on the hot path).
+// the user waits for this on every reply. Default is deepseek-v4.1-flash-1017
+// ($0.15/M input, $0.60/M output on OpenRouter). Its latency and cost have NOT
+// been re-measured for this variant; the ~1s time-to-first-token measured
+// earlier was for deepseek-v4-flash. DeepSeek isn't region-blocked, so this
+// stays on the direct provider (no proxy hop on the hot path).
 export const turnModel = openrouter(
-  process.env.OPENROUTER_TURN_MODEL ?? "deepseek/deepseek-v4-flash",
+  process.env.OPENROUTER_TURN_MODEL ?? "deepseek/deepseek-v4.1-flash-1017",
 );
 
 // The reasoning tasks (session report + targeted-training drills) run once and
